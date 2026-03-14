@@ -30,3 +30,7 @@ Thumbs.db
 *.safetensors
 *.gguf
 models/
+
+# Local persistent app data
+chroma_db/
+temp_uploads/

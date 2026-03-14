@@ -2,6 +2,14 @@ import json
 import os
 import re
 from typing import Dict, List, Tuple
+from math import sqrt
+
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+import config
+
+
+_SEMANTIC_EMBEDDER = None
 
 
 def load_golden_dataset(path: str) -> List[Dict[str, str]]:
@@ -63,6 +71,38 @@ def _token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+def _get_semantic_embedder():
+    global _SEMANTIC_EMBEDDER
+    if _SEMANTIC_EMBEDDER is None:
+        _SEMANTIC_EMBEDDER = HuggingFaceEmbeddings(
+            model_name=config.EMBEDDING_MODEL_NAME,
+            model_kwargs={"device": "cpu"},
+        )
+    return _SEMANTIC_EMBEDDER
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sqrt(sum(x * x for x in a))
+    nb = sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _semantic_similarity(prediction: str, reference: str) -> float:
+    if not prediction.strip() or not reference.strip():
+        return 0.0
+    try:
+        embedder = _get_semantic_embedder()
+        vectors = embedder.embed_documents([prediction, reference])
+        return _cosine_similarity(vectors[0], vectors[1])
+    except Exception:
+        return 0.0
+
+
 def evaluate_dataset(doc_processor, tutor_engine, dataset: List[Dict[str, str]], k_values: Tuple[int, ...] = (1, 3, 5)) -> Dict:
     if not dataset:
         return {
@@ -70,12 +110,14 @@ def evaluate_dataset(doc_processor, tutor_engine, dataset: List[Dict[str, str]],
             "hit_rates": {f"Hit@{k}": 0.0 for k in k_values},
             "mrr": 0.0,
             "avg_f1": 0.0,
+            "avg_semantic_similarity": 0.0,
             "rows": [],
         }
 
     hit_counts = {k: 0 for k in k_values}
     mrr_total = 0.0
     f1_total = 0.0
+    semantic_total = 0.0
     rows = []
 
     max_k = max(k_values)
@@ -101,9 +143,11 @@ def evaluate_dataset(doc_processor, tutor_engine, dataset: List[Dict[str, str]],
             if rank is not None:
                 mrr_total += 1.0 / rank
 
-        predicted_answer = tutor_engine.get_response(question)
+        predicted_answer = tutor_engine.get_response(question, record_memory=False)
         f1_score = _token_f1(predicted_answer, expected_answer)
+        semantic_sim = _semantic_similarity(predicted_answer, expected_answer)
         f1_total += f1_score
+        semantic_total += semantic_sim
 
         rows.append({
             "question": question,
@@ -111,17 +155,20 @@ def evaluate_dataset(doc_processor, tutor_engine, dataset: List[Dict[str, str]],
             "retrieved_top1": retrieved_sources[0] if retrieved_sources else "",
             "rank_of_expected_source": rank if rank is not None else "not_found",
             "answer_f1": round(f1_score, 3),
+            "semantic_similarity": round(semantic_sim, 3),
         })
 
     n = len(dataset)
     hit_rates = {f"Hit@{k}": round(hit_counts[k] / n, 3) for k in k_values}
     mrr = round(mrr_total / n, 3)
     avg_f1 = round(f1_total / n, 3)
+    avg_semantic_similarity = round(semantic_total / n, 3)
 
     return {
         "num_samples": n,
         "hit_rates": hit_rates,
         "mrr": mrr,
         "avg_f1": avg_f1,
+        "avg_semantic_similarity": avg_semantic_similarity,
         "rows": rows,
     }

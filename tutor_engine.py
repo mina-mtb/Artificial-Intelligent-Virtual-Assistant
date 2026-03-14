@@ -65,7 +65,7 @@ class TutorEngine:
 
     def _fallback_answer(self, question: str, context: str) -> str:
         if not context.strip():
-            return "No relevant context was found in uploaded TXT documents."
+            return "No relevant context was found in uploaded study files."
 
         question_terms = {
             t for t in re.findall(r"\w+", question.lower())
@@ -95,23 +95,164 @@ class TutorEngine:
             selected = [s for _, s in scored[:2]]
             return "Based on the uploaded text, the answer is:\n\n" + " ".join(selected)
 
-        return "I could not generate a concise answer, but relevant context was retrieved from your uploaded TXT document."
+        return "I could not generate a concise answer, but relevant context was retrieved from your uploaded file."
+
+    def _trim_to_two_sentences(self, text: str) -> str:
+        parts = re.split(r"(?<=[.!?])\s+", text.strip())
+        parts = [p.strip() for p in parts if p.strip()]
+        if not parts:
+            return text.strip()
+        return " ".join(parts[:2]).strip()
+
+    def _extract_clean_context(self, context: str) -> str:
+        lines = []
+        for line in context.splitlines():
+            if line.strip().startswith("[Source:"):
+                continue
+            if line.strip():
+                lines.append(line.strip())
+        return " ".join(lines).strip()
+
+    def _extractive_answer(self, question: str, context: str) -> str:
+        clean_context = self._extract_clean_context(context)
+        if not clean_context:
+            return ""
+
+        question_terms = {
+            t for t in re.findall(r"\w+", question.lower())
+            if len(t) > 2
+        }
+        stop_terms = {
+            "what", "when", "where", "which", "does", "about", "from", "with",
+            "that", "this", "have", "your", "give", "common", "used", "mean",
+            "important", "why", "is", "the", "are", "for", "and"
+        }
+        question_terms = {t for t in question_terms if t not in stop_terms}
+        if not question_terms:
+            return ""
+
+        sentences = re.split(r"(?<=[.!?])\s+", clean_context)
+        scored = []
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            sent_terms = {t for t in re.findall(r"\w+", sent.lower()) if len(t) > 2}
+            if not sent_terms:
+                continue
+            overlap = len(question_terms.intersection(sent_terms))
+            if overlap == 0:
+                continue
+            score = overlap / max(1, len(question_terms))
+            scored.append((score, sent))
+
+        if not scored:
+            return ""
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_score, best_sentence = scored[0]
+        if best_score < 0.20:
+            return ""
+        return self._trim_to_two_sentences(best_sentence)
+
+    def _grounding_strength(self, question: str, context: str) -> float:
+        clean_context = self._extract_clean_context(context)
+        if not clean_context:
+            return 0.0
+        q_terms = {t for t in re.findall(r"\w+", question.lower()) if len(t) > 2}
+        c_terms = {t for t in re.findall(r"\w+", clean_context.lower()) if len(t) > 2}
+        if not q_terms or not c_terms:
+            return 0.0
+        overlap = len(q_terms.intersection(c_terms))
+        return overlap / max(1, len(q_terms))
+
+    def _contains_persian(self, text: str) -> bool:
+        return bool(re.search(r"[\u0600-\u06FF]", text))
+
+    def _is_chitchat(self, text: str) -> bool:
+        t = text.strip().lower()
+        if not t:
+            return True
+
+        normalized = re.sub(r"[^\w\u0600-\u06FF\s]", " ", t)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        en_smalltalk = {
+            "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye", "goodbye",
+            "how are you", "good morning", "good evening", "good night"
+        }
+        fa_smalltalk = {
+            "سلام", "درود", "مرسی", "ممنون", "خوبی", "خداحافظ", "شب بخیر", "صبح بخیر", "عصر بخیر"
+        }
+
+        if normalized in en_smalltalk or normalized in fa_smalltalk:
+            return True
+        if len(normalized.split()) <= 2 and normalized in fa_smalltalk:
+            return True
+        if len(normalized.split()) <= 3 and normalized in en_smalltalk:
+            return True
+        return False
+
+    def _chitchat_answer(self, text: str) -> str:
+        t = text.strip().lower()
+        is_fa = self._contains_persian(text)
+        if is_fa:
+            if any(w in t for w in ["خداحافظ"]):
+                return "خداحافظ. هر وقت خواستی دوباره ادامه می‌دهیم."
+            if any(w in t for w in ["مرسی", "ممنون"]):
+                return "خواهش می‌کنم. اگر خواستی، سوال بعدی را بپرس."
+            return "سلام. خوشحالم اینجا هستی. اگر بخواهی می‌توانم روی فایل‌های آپلودشده کمکت کنم."
+
+        if any(w in t for w in ["bye", "goodbye"]):
+            return "Goodbye. I am here whenever you want to continue."
+        if any(w in t for w in ["thanks", "thank you"]):
+            return "You're welcome. Ask me anything when you're ready."
+        return "Hello. I'm ready to help with your uploaded study files whenever you want."
 
     def get_response(self, user_input: str, record_memory: bool = True) -> str:
+        if self._is_chitchat(user_input):
+            self.last_retrieved_sources = []
+            answer = self._chitchat_answer(user_input)
+            if record_memory:
+                self.memory.chat_memory.add_user_message(user_input)
+                self.memory.chat_memory.add_ai_message(answer)
+            return answer
+
         context = self._retrieve_context(user_input)
         chat_history = self._build_chat_history()
+        grounding = self._grounding_strength(user_input, context)
 
         if context.strip():
+            extractive = self._extractive_answer(user_input, context)
+            if extractive:
+                answer = extractive
+                if record_memory:
+                    self.memory.chat_memory.add_user_message(user_input)
+                    self.memory.chat_memory.add_ai_message(answer)
+                return answer
+
+        if context.strip():
+            if grounding < 0.18:
+                answer = (
+                    "I don't have enough evidence in the retrieved context to answer confidently. "
+                    "Please upload a more relevant file or rephrase the question with key course terms."
+                )
+                if record_memory:
+                    self.memory.chat_memory.add_user_message(user_input)
+                    self.memory.chat_memory.add_ai_message(answer)
+                return answer
+
             prompt = f"""
 You are a helpful, encouraging Socratic AI Tutor.
 
-The user may ask greetings, simple conversational questions, or questions about uploaded study documents.
-
-If the retrieved context is relevant, use it.
-If the answer is not supported by the retrieved context, say that clearly.
-Do not invent document-specific facts.
-
-You can still respond naturally to greetings or general conversational messages.
+Follow these rules strictly:
+1) Use only the retrieved context for document-grounded answers.
+2) If the answer is not clearly supported by context, say: "I don't have enough evidence in the retrieved context."
+3) Keep the answer concise (1-2 short sentences).
+4) Reuse wording from retrieved context where possible.
+5) Do not add unrelated details.
+6) If the user message is a greeting/chitchat, respond naturally and briefly.
+7) If evidence is partial, explicitly state uncertainty and mention what is missing.
 
 Retrieved context:
 {context}
@@ -126,12 +267,12 @@ User message:
             prompt = f"""
 You are a friendly and helpful AI Tutor.
 
-Right now there is no relevant uploaded document context available.
+Right now there is no relevant uploaded study-file context available.
 So:
 - respond naturally to greetings and normal conversation
 - help the user in a useful way
-- if the user asks about uploaded documents, explain that no relevant document context is available yet
-- do not pretend that you have read documents when you have not
+- if the user asks about uploaded files, explain that no relevant file context is available yet
+- do not pretend that you have read files when you have not
 
 Chat history:
 {chat_history}
@@ -143,12 +284,20 @@ User message:
         try:
             response = self.client.chat.completions.create(
                 model=config.OPENAI_MODEL,
+                temperature=config.OPENAI_TEMPERATURE,
+                max_tokens=config.OPENAI_MAX_OUTPUT_TOKENS,
                 messages=[
-                    {"role": "system", "content": "You are a helpful, friendly tutor."},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a precise educational tutor. "
+                            "When context exists, answer with minimal, direct wording and no hallucination."
+                        ),
+                    },
                     {"role": "user", "content": prompt},
                 ],
             )
-            answer = (response.choices[0].message.content or "").strip()
+            answer = self._trim_to_two_sentences((response.choices[0].message.content or "").strip())
         except RateLimitError:
             answer = self._fallback_answer(user_input, context)
         except AuthenticationError:
