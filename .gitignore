@@ -34,3 +34,4 @@ models/
 # Local persistent app data
 chroma_db/
 temp_uploads/
+ollama_data/

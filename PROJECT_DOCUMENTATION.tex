@@ -1,0 +1,180 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\geometry{margin=1in}
+
+\title{Socratic AI Tutor: Full Project Documentation}
+\author{Artificial Intelligent Virtual Assistant Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Project Overview}
+This project is an educational virtual assistant that combines document retrieval with language model generation (RAG: Retrieval-Augmented Generation). The system allows users to upload study files, store them as vector embeddings, and ask grounded questions about those files.
+
+\subsection{Main Goals}
+\begin{itemize}[leftmargin=*]
+\item Provide accurate, evidence-grounded answers from user-provided files.
+\item Keep memory persistent across restarts.
+\item Allow users to manage memory: save files, delete one file, or reset all.
+\item Offer built-in quality assessment for retrieval and answer generation.
+\end{itemize}
+
+\section{System Architecture}
+The app is structured as three UI panels:
+\begin{itemize}[leftmargin=*]
+\item Left: Knowledge base management (upload/save/list/delete/reset).
+\item Center: Chat interface (user interaction with tutor).
+\item Right: Assessment and evaluation results.
+\end{itemize}
+
+\subsection{Core Components}
+\begin{longtable}{|p{0.28\linewidth}|p{0.65\linewidth}|}
+\hline
+\textbf{File} & \textbf{Responsibility} \\
+\hline
+\texttt{app.py} & Streamlit UI, user workflow, chat loop, panel layout, button logic. \\
+\hline
+\texttt{database.py} & File parsing, chunking, embedding ingestion, retrieval helpers, file-level delete/reset operations. \\
+\hline
+\texttt{tutor_engine.py} & Response logic, chitchat detection, grounding checks, context handling, fallback behavior. \\
+\hline
+\texttt{evaluation.py} & Golden dataset loading and metric calculation (Hit@k, MRR, token F1, semantic similarity). \\
+\hline
+\texttt{config.py} & Runtime constants and environment variable mapping. \\
+\hline
+\texttt{docker-compose.yml}, \texttt{Dockerfile} & Containerized runtime and reproducible deployment. \\
+\hline
+\end{longtable}
+
+\section{Data and Memory Flow}
+\subsection{Ingestion Pipeline}
+\begin{enumerate}[leftmargin=*]
+\item User uploads a file (\texttt{txt, md, pdf, csv, json}).
+\item The file is converted to clean text.
+\item Text is chunked using recursive character splitter.
+\item Chunks are embedded and stored in Chroma persistent vector storage.
+\item Stable IDs prevent duplicate chunk insertion for the same source/chunk index.
+\end{enumerate}
+
+\subsection{Retrieval and Answer Pipeline}
+\begin{enumerate}[leftmargin=*]
+\item User sends a chat message.
+\item If message is chitchat (greeting/thanks/goodbye), answer directly (no retrieval).
+\item Otherwise retrieve top-k chunks (MMR) and build contextual prompt.
+\item Apply grounding checks and concise answer strategy.
+\item Return answer and evidence metadata (source/page/chunk).
+\end{enumerate}
+
+\section{Supported File Types}
+\begin{itemize}[leftmargin=*]
+\item \texttt{.txt}, \texttt{.md}: direct text read.
+\item \texttt{.pdf}: extracted with PyPDF2 page text extraction.
+\item \texttt{.csv}: rows flattened to text lines.
+\item \texttt{.json}: nested objects flattened to key-value lines.
+\end{itemize}
+
+\section{Persistence Model}
+\subsection{Expected Behavior}
+\begin{itemize}[leftmargin=*]
+\item First run starts empty.
+\item Saved knowledge persists between runs.
+\item Users can delete a single file or clear all knowledge.
+\end{itemize}
+
+\subsection{Docker Volumes}
+The project uses named Docker volumes for app memory folders. This avoids accidental preloaded content from local project folders and keeps runtime memory explicitly managed by app actions.
+
+\section{Evaluation Framework}
+\subsection{Golden Dataset}
+Evaluation uses a JSONL dataset with:
+\begin{itemize}[leftmargin=*]
+\item question
+\item reference answer
+\item expected source file
+\end{itemize}
+
+\subsection{Metrics}
+\begin{itemize}[leftmargin=*]
+\item Hit@k: whether expected source appears within top-k retrieval.
+\item MRR: ranking quality of expected source.
+\item Token F1: lexical overlap between generated and reference answers.
+\item Semantic Similarity: embedding cosine similarity between generated and reference answers.
+\end{itemize}
+
+\section{UI/UX Decisions}
+\begin{itemize}[leftmargin=*]
+\item Chat input is centered with chat panel to improve visual consistency.
+\item Per-file delete button is compact for cleaner saved-file list display.
+\item \texttt{Evaluate Model} remains disabled until at least one file is saved.
+\item Result panel is shown in expander to avoid popover layering issues.
+\end{itemize}
+
+\section{Running the Project}
+\subsection{Docker (Recommended)}
+\begin{enumerate}[leftmargin=*]
+\item Create \texttt{.env} with valid OpenAI key and model.
+\item Run:
+\begin{verbatim}
+docker compose up -d --build
+\end{verbatim}
+\item Open \texttt{http://localhost:8501}
+\item Stop with:
+\begin{verbatim}
+docker compose down
+\end{verbatim}
+\end{enumerate}
+
+\subsection{Local Python}
+\begin{enumerate}[leftmargin=*]
+\item Create and activate virtual environment.
+\item Install dependencies:
+\begin{verbatim}
+pip install -r requirements.txt
+\end{verbatim}
+\item Run:
+\begin{verbatim}
+streamlit run app.py
+\end{verbatim}
+\end{enumerate}
+
+\section{Configuration}
+Main configuration values are in \texttt{config.py}:
+\begin{itemize}[leftmargin=*]
+\item chunk size and overlap
+\item default retrieval k
+\item embedding model name
+\item OpenAI model/temperature/max output tokens
+\end{itemize}
+
+\section{Operational Checklist}
+\begin{enumerate}[leftmargin=*]
+\item Upload file and save.
+\item Verify file appears under Saved Files.
+\item Ask question and verify grounded answer.
+\item Run evaluation and inspect metrics.
+\item Delete one file and confirm it disappears.
+\item Reset knowledge base and confirm evaluation becomes disabled.
+\end{enumerate}
+
+\section{Known Limitations and Next Steps}
+\begin{itemize}[leftmargin=*]
+\item PDF extraction quality depends on PDF text layer (scanned PDFs may require OCR).
+\item Current semantic evaluation is embedding-based; optional LLM-judge can be added.
+\item Deprecation warnings in LangChain APIs can be addressed by future package upgrades.
+\item Additional file formats (e.g., DOCX) can be added in ingestion module.
+\end{itemize}
+
+\section{Conclusion}
+The current system provides a robust educational RAG assistant with persistent memory, transparent retrieval evidence, file-level memory controls, and reproducible deployment. The architecture is modular and ready for iterative improvement in model quality, evaluation depth, and file-format support.
+
+\end{document}
