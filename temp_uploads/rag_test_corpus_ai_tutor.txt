@@ -1,0 +1,102 @@
+AI Tutor Test Corpus: Foundations of Retrieval-Augmented Generation (RAG)
+
+Section 1: What RAG Is
+Retrieval-Augmented Generation, usually shortened to RAG, is a method for answering questions by combining two components: retrieval and generation. In a traditional language model workflow, the model answers mainly from what it learned during training. In a RAG system, the model first searches a knowledge source, such as text files, notes, manuals, or course materials, and then uses the retrieved passages to produce an answer. This makes the final response more grounded in the provided documents.
+
+A simple RAG pipeline usually has five steps. First, documents are collected. Second, the documents are cleaned and split into smaller chunks. Third, each chunk is converted into a vector embedding. Fourth, when a user asks a question, the question is also converted into an embedding and compared to the document embeddings. Fifth, the most relevant chunks are sent to the answering component, which produces the final response.
+
+RAG is especially useful when the goal is to answer questions about a specific set of materials, for example a course textbook, lecture notes, company policies, or product documentation. It is less useful when no trustworthy knowledge base exists or when the task depends mostly on personal opinion or creativity.
+
+Section 2: Why RAG Is Useful in Education
+An AI tutor can benefit from RAG because students often ask questions that should be answered from course material rather than from general internet knowledge. For example, if a student asks, “What are the three stages of photosynthesis according to our lesson?” the system should use the lesson content, not just a generic biology answer.
+
+A RAG-based tutor can improve consistency, reduce hallucinations, and make feedback more relevant to the assigned material. It can also cite which passage was used to create the answer. This is valuable in education because the student can verify where the answer came from.
+
+However, a RAG tutor is not automatically correct. If the wrong chunk is retrieved, the final answer may still be wrong even if the generator is fluent. For that reason, retrieval quality is often just as important as generation quality.
+
+Section 3: Chunking Strategy
+Chunking is the process of dividing large documents into smaller parts. If chunks are too large, retrieval may become noisy because each chunk contains too many topics. If chunks are too small, important context may be lost. A practical chunk size for educational notes is often between 200 and 500 words, although the best size depends on the document style and the embedding model.
+
+Chunk overlap is also important. Overlap means that adjacent chunks share some text, for example 30 to 50 words. Overlap helps preserve context when a key idea appears near the boundary between two chunks.
+
+Suppose a paragraph explains that the water cycle includes evaporation, condensation, and precipitation, and the next paragraph explains that the sun provides the energy for evaporation. Without overlap, a question about the energy source of the water cycle may miss the relevant context if the sentence falls at the boundary. With overlap, retrieval is more likely to capture the full explanation.
+
+Section 4: Embeddings
+An embedding is a numerical representation of text. The basic idea is that texts with similar meaning should have vectors that are close to each other in the embedding space. When a user asks a question, the system embeds the question and compares it to the embeddings of the stored chunks.
+
+Two common similarity measures are cosine similarity and dot product. In many educational RAG prototypes, cosine similarity is used because it compares direction rather than raw magnitude. If the question embedding is close to a chunk embedding, the chunk is considered semantically relevant.
+
+Embeddings do not truly understand meaning in a human sense. Instead, they capture statistical patterns that often correlate with meaning. Because of that, retrieval can still fail when the wording of the question is unusual, when the source text is ambiguous, or when the relevant information is spread across several chunks.
+
+Section 5: Top-k Retrieval
+After computing similarity scores, the system usually selects the top-k most relevant chunks. The value of k matters. If k is too small, the system may miss necessary evidence. If k is too large, the generator may receive too much irrelevant context.
+
+Many small experiments begin with k = 3 or k = 5. For example, a student asking “Why does a larger chunk overlap help?” may be answered well with the top 3 chunks. But a more complex question that requires combining definitions and examples may benefit from the top 5 chunks.
+
+There is no universal best value for k. The best choice depends on chunk size, document quality, and the complexity of the questions.
+
+Section 6: Evaluation of Retrieval
+A RAG system should be evaluated systematically. One simple retrieval metric is Hit Rate at k, often written as Hit@k. Hit@k checks whether at least one correct or relevant chunk appears among the top k retrieved chunks.
+
+For example, imagine a test set of 20 questions. If the correct chunk appears in the top 3 retrieved results for 16 questions, then Hit@3 is 16 divided by 20, which equals 0.80 or 80 percent.
+
+Another useful metric is Mean Reciprocal Rank, or MRR. MRR gives higher credit when the first correct chunk appears earlier in the ranking. If the correct chunk is first, the reciprocal rank is 1. If it is second, the reciprocal rank is 1/2. If it is third, it is 1/3.
+
+Hit Rate is easy to explain, while MRR gives more detail about ranking quality. In a short student project, Hit@k is often enough as a core retrieval metric.
+
+Section 7: Evaluation of Generated Answers
+Evaluating generated answers is harder than evaluating retrieval. One method is exact match, but this can be too strict because two answers may mean the same thing while using different wording. Another method is human evaluation, but that takes time.
+
+A practical compromise is LLM-as-a-judge. In this method, another language model compares the generated answer to a reference answer and scores dimensions such as correctness, completeness, and faithfulness to the source. This is useful, but it is not perfect, because the judge model can also make mistakes.
+
+In very small projects, students sometimes combine automatic checks with manual review. For instance, they may manually inspect 10 generated answers and note whether the answer is correct, partly correct, or incorrect.
+
+Section 8: Common Failure Cases
+RAG systems often fail for predictable reasons. One common problem is poor document cleaning. If PDF extraction produces broken lines, repeated headers, or missing symbols, the chunks may become hard to retrieve.
+
+Another problem is question-document mismatch. Suppose the source text says “instructors should provide formative feedback,” but the student asks, “What kind of response should teachers give during learning?” The two texts are related, but the wording is different. Weak embeddings may miss this connection.
+
+A third problem is multi-hop reasoning. This happens when the answer is not found in one sentence or one chunk alone. For example, one chunk may define evaporation, and another may explain that the sun provides energy. Answering the question “What powers evaporation in the water cycle?” may require connecting both ideas.
+
+A fourth problem is overconfident generation. If retrieval fails but the generator still produces a polished answer, users may trust a response that is actually unsupported by the documents.
+
+Section 9: Good Design Choices for a Small Student Project
+For a one-week project, a small and reliable system is better than a large and unfinished one. A sensible strategy is to begin with clean .txt files instead of PDFs. Clean text is easier to chunk, easier to inspect, and easier to debug.
+
+A second good choice is to keep the user interface simple. A command-line script or notebook demo is often enough for an MVP. A web app can be added later if time remains.
+
+A third good choice is to build a small golden dataset. For example, the student may create 15 to 25 questions with known correct answers and, if possible, note which chunk should contain the evidence. This makes it possible to measure retrieval and answer quality in a repeatable way.
+
+Section 10: Example Golden Dataset Design
+A good golden dataset should include both easy and hard questions. Easy questions ask for direct facts, such as “What does Hit@k measure?” Harder questions ask for explanation or comparison, such as “Why can chunk overlap improve retrieval?”
+
+The dataset should also contain some paraphrased questions rather than only copying sentences directly from the text. This is important because real users rarely ask questions using exactly the same words as the source.
+
+If all test questions are too easy, the system may appear better than it really is. If all questions are too hard, the evaluation may be discouraging and unclear. A balanced test set gives a more realistic picture.
+
+Section 11: Recommended MVP for an Educational RAG Tutor
+A minimal educational RAG tutor does not need every advanced feature. An MVP can be considered successful if it does four things well: it loads a small corpus, splits the corpus into chunks, retrieves relevant chunks for a user question, and produces an answer that is clearly based on those chunks.
+
+Features such as quiz generation, conversation memory, PDF upload, and a web dashboard are useful, but they should be treated as extensions rather than core requirements in a short project.
+
+Section 12: Key Terms Summary
+RAG: A method that combines retrieval of external documents with answer generation.
+Chunking: Splitting documents into smaller units for indexing and retrieval.
+Overlap: Shared text between adjacent chunks to preserve context.
+Embedding: A vector representation of text used for similarity search.
+Top-k: The number of highest-ranked chunks passed forward.
+Hit@k: Whether a relevant chunk appears within the top k results.
+MRR: A ranking metric that rewards earlier retrieval of the correct chunk.
+LLM-as-a-judge: Using a language model to evaluate the quality of generated answers.
+Hallucination: A fluent but unsupported or invented answer.
+Golden dataset: A small evaluation set with trusted reference questions and answers.
+
+Section 13: Mini Case Example
+Sara is building a study assistant for a short university module. She starts with six clean text files taken from lecture summaries. She chooses a chunk size of 300 words with 40 words of overlap. She uses embeddings to index all chunks and sets top-k retrieval to 3 for the first prototype.
+
+To evaluate the retriever, Sara writes 20 test questions. For 17 of those questions, at least one relevant chunk appears in the top 3 results. That means her Hit@3 is 17/20, which equals 0.85.
+
+Later, Sara notices that questions phrased in unusual language still fail. She decides that if she had more time, she would test a different embedding model and compare the new Hit@3 and MRR values to the original system.
+
+Section 14: Final Observation
+The main lesson of a small RAG project is that retrieval quality drives the usefulness of the whole system. A polished interface cannot rescue a weak retriever, while a simple interface can still demonstrate strong design if the retrieval and evaluation are clear. For this reason, many student projects should prioritize clean data, understandable metrics, and a limited but functional scope.

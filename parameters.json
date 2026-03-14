@@ -1,0 +1,21 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "value": "ai-tutor-vm"
+        },
+        "adminUsername": {
+            "value": "azureuser"
+        },
+        "adminPassword": {
+            "value": "YourStrongPassword_123!"
+        },
+        "vmSize": {
+            "value": "Standard_B2ms"
+        },
+        "location": {
+            "value": "westeurope"
+        }
+    }
+}

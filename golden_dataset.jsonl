@@ -1,0 +1,15 @@
+﻿{"question":"What does RAG combine?","answer":"RAG combines retrieval and generation.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What are the five steps of a simple RAG pipeline?","answer":"Collect documents, chunk them, embed chunks, embed the question and compare, then send top relevant chunks to the answering component.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"Why is RAG useful in education?","answer":"It grounds answers in course materials, improves consistency, and reduces hallucinations.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"Why is chunk overlap important?","answer":"Overlap preserves context across chunk boundaries and improves retrieval when key ideas span boundaries.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What is an embedding?","answer":"An embedding is a numerical vector representation of text used for similarity search.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"Which similarity measure is commonly used in educational RAG prototypes?","answer":"Cosine similarity is commonly used.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What does top-k retrieval mean?","answer":"Top-k is the number of highest-ranked relevant chunks selected after similarity scoring.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What does Hit@k measure?","answer":"Hit@k checks whether at least one correct or relevant chunk appears within the top k retrieved results.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What is MRR?","answer":"MRR is Mean Reciprocal Rank, which rewards systems that retrieve a correct chunk earlier in the ranking.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"Why is evaluating generated answers difficult?","answer":"Because exact match is strict and meaning can be correct with different wording, while human evaluation takes time.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"Give one common RAG failure case.","answer":"A common failure case is poor document cleaning, which makes chunks noisy and hard to retrieve.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"For a one-week project, what data format is recommended first?","answer":"Clean .txt files are recommended before PDFs.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What are the four core MVP abilities for an educational RAG tutor?","answer":"Load a small corpus, chunk it, retrieve relevant chunks, and produce answers clearly based on those chunks.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What is a golden dataset?","answer":"A golden dataset is a small trusted evaluation set with reference questions and answers, and sometimes expected evidence chunks.","source":"rag_test_corpus_ai_tutor.txt"}
+{"question":"What is the key lesson of a small RAG project?","answer":"Retrieval quality drives the usefulness of the whole system.","source":"rag_test_corpus_ai_tutor.txt"}

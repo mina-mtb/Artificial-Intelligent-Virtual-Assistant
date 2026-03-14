@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  aitutor:
+    build: .
+    container_name: socratic_ai_tutor
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./temp_uploads:/app/temp_uploads
+    env_file:
+      - .env
+    restart: unless-stopped
