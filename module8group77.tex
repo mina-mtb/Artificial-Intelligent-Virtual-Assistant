@@ -1,0 +1,626 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+\geometry{
+  top=2.5cm, bottom=2.5cm,
+  left=2.5cm, right=2.5cm,
+  headheight=15pt
+}
+
+% ── Colour scheme ────────────────────────────────────────────────────
+\definecolor{primary}{RGB}{30,78,136}
+\definecolor{secondary}{RGB}{60,120,200}
+\definecolor{codebg}{RGB}{245,247,250}
+\definecolor{codekw}{RGB}{0,112,192}
+\definecolor{codestr}{RGB}{163,21,21}
+\definecolor{codecomment}{RGB}{106,153,85}
+\definecolor{accent}{RGB}{220,40,40}
+
+% ── Section formatting ───────────────────────────────────────────────
+\titleformat{\section}
+  {\Large\bfseries\color{primary}}
+  {\thesection.}{0.6em}{}[\color{primary}\titlerule]
+
+\titleformat{\subsection}
+  {\large\bfseries\color{secondary}}
+  {\thesubsection.}{0.5em}{}
+
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{black}}
+  {\thesubsubsection.}{0.4em}{}
+
+% ── Header / footer ──────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small\color{gray} Dialogue Systems and Question Answering}
+\lhead{\small\color{gray} Mini-Project -- Group 77}
+\cfoot{\thepage}
+
+% ── Code listings ────────────────────────────────────────────────────
+\lstset{
+  language=Python,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codekw}\bfseries,
+  stringstyle=\color{codestr},
+  commentstyle=\color{codecomment}\itshape,
+  frame=single,
+  framesep=4pt,
+  rulecolor=\color{gray!40},
+  showstringspaces=false,
+  breaklines=true,
+  tabsize=4,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt
+}
+
+% ── Coloured boxes ───────────────────────────────────────────────────
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{infobox}[1]{
+  colback=blue!5, colframe=primary,
+  fonttitle=\bfseries, title=#1,
+  breakable
+}
+
+% ── Hyperref ─────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=primary,
+  urlcolor=secondary,
+  citecolor=accent
+}
+
+% ════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Title page ───────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+
+  \vspace*{1cm}
+  {\Large\textbf{Chalmers University of Technology}}\\
+  {\large Department of Computer Science and Engineering}
+
+  \vspace{2cm}
+
+  {\Huge\bfseries\color{primary}
+    Mini-Project: Socratic AI Tutor
+  }
+
+  \vspace{1.5cm}
+
+  \begin{tcolorbox}[colback=blue!5, colframe=primary, width=0.8\textwidth, center]
+    \centering
+    {\large\textbf{Course:} DAT566/DIT408 -- Introduction to Data Science and AI}\\[4pt]
+    {\textbf{Topic:} Retrieval-Augmented Generation for Educational Assistants}\\
+    {\textbf{Task:} RAG-based tutor with hybrid retrieval, grounding checks, and evaluation}
+  \end{tcolorbox}
+
+  \vspace{1.5cm}
+
+  \newcommand{\groupNumber}{77}
+  \newcommand{\memberOneName}{Mina Tahmasebi Berjouei}
+  \newcommand{\memberOneProgram}{Information and Communication Technology, MSc}
+  \newcommand{\memberOneEmail}{\href{mailto:Berjouei@chalmers.se}{Berjouei@chalmers.se}}
+  \newcommand{\memberOneHours}{20}
+
+  \newcommand{\memberTwoName}{Olga Ratushniak}
+  \newcommand{\memberTwoProgram}{Data Science and AI, MSc}
+  \newcommand{\memberTwoEmail}{\href{mailto:olgara@chalmers.se}{olgara@chalmers.se}}
+  \newcommand{\memberTwoHours}{20}
+
+  {\Large\textbf{\color{secondary}Group \groupNumber}}
+
+  \vspace{0.8cm}
+
+  \begin{table}[h!]
+    \centering
+    \begin{tabular}{p{3cm}p{9cm}}
+      \toprule
+      \multicolumn{2}{c}{\textbf{Team Members}} \\
+      \midrule
+      \textbf{Name:}    & \memberOneName \\
+      \textbf{Program:} & \memberOneProgram \\
+      \textbf{Email:}   & \memberOneEmail \\
+      \textbf{Hours:}   & \memberOneHours \\
+      \midrule
+      \textbf{Name:}    & \memberTwoName \\
+      \textbf{Program:} & \memberTwoProgram \\
+      \textbf{Email:}   & \memberTwoEmail \\
+      \textbf{Hours:}   & \memberTwoHours \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vfill
+  {\large\textbf{\today}}
+\end{titlepage}
+
+% ── Table of contents ────────────────────────────────────────────────
+\tableofcontents
+\newpage
+
+% ════════════════════════════════════════════════════════════════════
+\section{Introduction}
+
+This report presents a mini-project that builds a Socratic AI Tutor, an educational
+virtual assistant based on Retrieval-Augmented Generation (RAG). The system allows
+users to upload study files, store them as vector embeddings in a persistent database,
+and ask grounded questions that are answered using evidence retrieved directly from
+those files.
+
+The project relates to the course concept of \textbf{conversational AI and chatbots},
+and extends it in three concrete ways: by grounding responses in user-provided
+documents, by implementing a hybrid retrieval and reranking strategy, and by providing
+a quantitative evaluation framework for both retrieval quality and answer quality.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Motivation and Objectives}
+
+Large language models (LLMs) are prone to hallucination: generating plausible but
+factually incorrect answers. In an educational context this is particularly harmful.
+RAG addresses this by constraining the model to answer only from retrieved evidence,
+making responses verifiable and grounded.
+
+\subsection*{Main Objectives}
+\begin{itemize}[leftmargin=*]
+  \item Provide accurate, evidence-grounded answers from user-provided study files.
+  \item Maintain persistent memory across application restarts.
+  \item Allow users to manage the knowledge base: save, delete, or reset files.
+  \item Evaluate retrieval and generation quality with measurable metrics.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Relation to Course Concepts}
+
+The project directly extends the course topic of \textbf{retrieval-augmented generation
+and conversational agents}. Standard RAG pipelines retrieve documents and pass them
+to an LLM. This project extends that baseline in three ways:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Hybrid reranking}: retrieved chunks are reranked using a combination
+        of semantic rank (MMR) and lexical overlap score, improving retrieval precision.
+  \item \textbf{Grounding checks}: before calling the LLM, a grounding strength score
+        is computed between the query and retrieved context. If the score is below a
+        threshold, the system refuses to answer rather than hallucinate.
+  \item \textbf{Evaluation framework}: a golden dataset with Hit@k, MRR, Token F1,
+        and Semantic Similarity metrics provides quantitative feedback on both
+        retrieval and generation quality, going beyond simple manual inspection.
+\end{enumerate}
+
+The project also touches on the course discussion of \textbf{mimicking vs.\
+understanding}: the tutor retrieves and reranks text but does not truly comprehend
+it. This distinction is discussed further in Section~\ref{sec:discussion}.
+
+% ════════════════════════════════════════════════════════════════════
+\section{System Design and Methodology}
+
+\subsection{Architecture Overview}
+
+The application is structured as three UI panels built with Streamlit:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Left panel}: knowledge base management (upload, save, list, delete, reset).
+  \item \textbf{Center panel}: chat interface for user interaction with the tutor.
+  \item \textbf{Right panel}: evaluation results and assessment.
+\end{itemize}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[
+  panel/.style={draw=primary, fill=blue!5, rounded corners=6pt,
+                minimum width=3.2cm, minimum height=4.5cm, thick},
+  module/.style={draw=secondary, fill=white, rounded corners=4pt,
+                 minimum width=2.8cm, minimum height=0.7cm,
+                 font=\small, align=center},
+  arrow/.style={-{Stealth}, thick, color=primary},
+  label/.style={font=\bfseries\small\color{primary}}
+]
+
+% Left panel
+\node[panel] (left) at (0,0) {};
+\node[label] at (0, 2.0) {Left Panel};
+\node[module] at (0,  1.1) {Upload File};
+\node[module] at (0,  0.3) {Save / Delete};
+\node[module] at (0, -0.5) {List Files};
+\node[module] at (0, -1.3) {Reset KB};
+
+% Center panel
+\node[panel, minimum width=3.6cm] (center) at (4.6,0) {};
+\node[label] at (4.6, 2.0) {Center Panel};
+\node[module, minimum width=3.2cm] at (4.6,  1.1) {Chat History};
+\node[module, minimum width=3.2cm] at (4.6,  0.2) {User Input};
+\node[module, minimum width=3.2cm] at (4.6, -0.7) {Tutor Response};
+\node[module, minimum width=3.2cm] at (4.6, -1.5) {Evidence Sources};
+
+% Right panel
+\node[panel] (right) at (9.2,0) {};
+\node[label] at (9.2, 2.0) {Right Panel};
+\node[module] at (9.2,  1.1) {Evaluate Model};
+\node[module] at (9.2,  0.3) {Hit@k / MRR};
+\node[module] at (9.2, -0.5) {Token F1};
+\node[module] at (9.2, -1.3) {Semantic Sim.};
+
+% Arrows between panels
+\draw[arrow] (1.65, 0.3) -- (2.75, 0.3) node[midway, above, font=\tiny] {save};
+\draw[arrow] (6.55, 0.2) -- (7.55, 0.2) node[midway, above, font=\tiny] {evaluate};
+
+\end{tikzpicture}
+\caption{Three-panel Streamlit UI architecture.}
+\label{fig:ui}
+\end{figure}
+
+\begin{longtable}{|p{0.28\linewidth}|p{0.65\linewidth}|}
+\hline
+\textbf{File} & \textbf{Responsibility} \\
+\hline
+\texttt{app.py} & Streamlit UI, session state, panel layout, button logic. \\
+\hline
+\texttt{database.py} & File parsing, chunking, embedding ingestion, hybrid retrieval, delete/reset. \\
+\hline
+\texttt{tutor\_engine.py} & OpenAI calls, chitchat detection, grounding checks, fallback behavior. \\
+\hline
+\texttt{evaluation.py} & Golden dataset loading, Hit@k, MRR, Token F1, Semantic Similarity. \\
+\hline
+\texttt{config.py} & Runtime constants and environment variable mapping. \\
+\hline
+\texttt{docker-compose.yml} / \texttt{Dockerfile} & Containerized deployment with named volumes. \\
+\hline
+\end{longtable}
+
+\subsection{Ingestion Pipeline}
+
+\begin{enumerate}[leftmargin=*]
+  \item User uploads a file (\texttt{.txt}, \texttt{.md}, \texttt{.pdf}, \texttt{.csv}, \texttt{.json}).
+  \item The file is parsed into clean plain text using format-specific readers.
+  \item Text is split into overlapping chunks using a recursive character splitter
+        (chunk size: 450, overlap: 80).
+  \item Chunks are embedded with \texttt{sentence-transformers/all-MiniLM-L6-v2} and
+        stored in ChromaDB with stable IDs to prevent duplicate insertion.
+\end{enumerate}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw=primary, fill=blue!5, rounded corners=5pt,
+              minimum width=2.4cm, minimum height=0.8cm,
+              font=\small, align=center, thick},
+  arrow/.style={-{Stealth}, thick, color=primary}
+]
+\node[box] (upload)  at (0,0)    {Upload\\File};
+\node[box] (parse)   at (2.8,0)  {Parse to\\Plain Text};
+\node[box] (chunk)   at (5.6,0)  {Chunk\\(450/80)};
+\node[box] (embed)   at (8.4,0)  {Embed\\(MiniLM)};
+\node[box] (store)   at (11.2,0) {Store in\\ChromaDB};
+
+\draw[arrow] (upload) -- (parse);
+\draw[arrow] (parse)  -- (chunk);
+\draw[arrow] (chunk)  -- (embed);
+\draw[arrow] (embed)  -- (store);
+\end{tikzpicture}
+\caption{Document ingestion pipeline.}
+\label{fig:ingestion}
+\end{figure}
+
+\subsection{Retrieval and Answer Pipeline}
+
+\begin{enumerate}[leftmargin=*]
+  \item User sends a message.
+  \item If the message is chitchat (greeting, thanks, goodbye), it is answered directly
+        without retrieval.
+  \item Otherwise, top-k chunks are retrieved using MMR (Maximal Marginal Relevance)
+        and reranked with a hybrid score:
+        $0.7 \times \text{semantic rank} + 0.3 \times \text{lexical overlap}$.
+  \item A grounding strength score is computed. If below 0.18, the system declines
+        to answer rather than risk hallucination.
+  \item An extractive answer is attempted first. If successful, it is returned directly.
+        Otherwise, the full context and chat history are sent to the OpenAI API.
+  \item The answer and retrieved evidence metadata (source, page, chunk) are returned.
+\end{enumerate}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw=primary, fill=blue!5, rounded corners=5pt,
+              minimum width=2.6cm, minimum height=0.85cm,
+              font=\small, align=center, thick},
+  decision/.style={draw=accent, fill=red!5, rounded corners=5pt,
+                   minimum width=2.6cm, minimum height=0.85cm,
+                   font=\small, align=center, thick},
+  answer/.style={draw=secondary, fill=green!5, rounded corners=5pt,
+                 minimum width=2.6cm, minimum height=0.85cm,
+                 font=\small, align=center, thick},
+  arrow/.style={-{Stealth}, thick, color=primary},
+  redarrow/.style={-{Stealth}, thick, color=accent},
+  note/.style={font=\tiny\color{gray}}
+]
+
+\node[box]      (input)     at (0, 0)     {User\\Message};
+\node[decision] (chitchat)  at (3, 0)     {Chitchat?};
+\node[answer]   (direct)    at (3, -1.8)  {Direct\\Answer};
+\node[box]      (mmr)       at (6, 0)     {MMR\\Retrieval};
+\node[box]      (rerank)    at (9, 0)     {Hybrid\\Rerank};
+\node[decision] (grounding) at (9, -1.8)  {Grounding\\$\geq$ 0.18?};
+\node[answer]   (refuse)    at (6, -1.8)  {Refuse\\Answer};
+\node[box]      (extract)   at (12, 0)    {Extractive\\Answer?};
+\node[answer]   (llm)       at (12, -1.8) {OpenAI\\API Call};
+\node[answer]   (response)  at (12, -3.4) {Final\\Response};
+
+\draw[arrow]    (input)     -- (chitchat);
+\draw[redarrow] (chitchat)  -- node[right, note]{yes} (direct);
+\draw[arrow]    (chitchat)  -- node[above, note]{no}  (mmr);
+\draw[arrow]    (mmr)       -- (rerank);
+\draw[arrow]    (rerank)    -- (grounding);
+\draw[redarrow] (grounding) -- node[above, note]{no}  (refuse);
+\draw[arrow]    (grounding) -- node[right, note]{yes} (extract);
+\draw[arrow]    (extract)   -- node[right, note]{no}  (llm);
+\draw[arrow]    (llm)       -- (response);
+\draw[arrow]    (extract)   -- ++(0, -3.4) -- (response);
+
+\end{tikzpicture}
+\caption{Retrieval and answer generation pipeline.}
+\label{fig:retrieval}
+\end{figure}
+
+\subsection{Persistence}
+
+Named Docker volumes (\texttt{aitutor\_chroma\_data}, \texttt{aitutor\_uploads}) store
+the ChromaDB database and uploaded files independently of the source code. This ensures
+knowledge persists across container restarts and avoids accidental preloading from
+the local project folder.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Implementation}
+
+\subsection{Hybrid Reranker}
+
+The reranker in \texttt{database.py} combines two signals: the inverse rank from MMR
+retrieval (semantic) and the token overlap ratio between the query and the chunk
+(lexical). After scoring, duplicate chunks sharing the same \texttt{(source, chunk\_id)}
+pair are removed before returning the top-k results. This improves precision for
+keyword-heavy study material where pure semantic similarity may miss exact terms.
+
+\begin{lstlisting}[caption={Hybrid reranking score in database.py}]
+def _hybrid_rerank(self, query, docs, top_k):
+    q_tokens = self._tokenize(query)
+    scored = []
+    for rank, doc in enumerate(docs, start=1):
+        d_tokens = self._tokenize(doc.page_content)
+        lexical = len(q_tokens.intersection(d_tokens)) / max(1, len(q_tokens))
+        semantic = 1.0 / rank
+        score = 0.7 * semantic + 0.3 * lexical
+        scored.append((score, doc))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    # Deduplicate by (source, chunk_id)
+    unique, seen = [], set()
+    for _, doc in scored:
+        key = (doc.metadata.get("source"), doc.metadata.get("chunk_id"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(doc)
+        if len(unique) >= top_k:
+            break
+    return unique
+\end{lstlisting}
+
+\subsection{Grounding Check}
+
+Before calling the LLM, \texttt{tutor\_engine.py} first strips source-header lines
+from the context via \texttt{\_extract\_clean\_context()}, then computes term overlap
+between the query and the cleaned context. If the score falls below 0.18, the system
+returns a refusal message. Note that an extractive answer is always attempted first;
+the grounding check only runs if the extractive step returns nothing.
+
+\begin{lstlisting}[caption={Grounding strength check in tutor\_engine.py}]
+def _grounding_strength(self, question, context):
+    clean_context = self._extract_clean_context(context)
+    if not clean_context:
+        return 0.0
+    q_terms = {t for t in re.findall(r"\w+", question.lower()) if len(t) > 2}
+    c_terms = {t for t in re.findall(r"\w+", clean_context.lower()) if len(t) > 2}
+    if not q_terms or not c_terms:
+        return 0.0
+    return len(q_terms.intersection(c_terms)) / max(1, len(q_terms))
+\end{lstlisting}
+
+\subsection{Supported File Formats}
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{.txt}, \texttt{.md}: direct UTF-8 text read.
+  \item \texttt{.pdf}: page text extraction via PyPDF2.
+  \item \texttt{.csv}: rows flattened to pipe-separated text lines.
+  \item \texttt{.json}: nested objects recursively flattened to \texttt{key: value} lines.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Evaluation Framework}
+
+\subsection{Golden Dataset}
+
+A JSONL file (\texttt{golden\_dataset.jsonl}) contains evaluation samples, each with
+a \texttt{question}, a reference \texttt{answer}, and the expected \texttt{source}
+filename.
+
+\subsection{Metrics}
+
+\begin{longtable}{|p{0.25\linewidth}|p{0.68\linewidth}|}
+\hline
+\textbf{Metric} & \textbf{Description} \\
+\hline
+Hit@k & Whether the expected source file appears in the top-k retrieved chunks. \\
+\hline
+MRR & Mean Reciprocal Rank: measures how highly the expected source is ranked. \\
+\hline
+Token F1 & Lexical overlap (precision/recall) between generated and reference answers. \\
+\hline
+Semantic Similarity & Cosine similarity between embeddings of generated and reference answers. \\
+\hline
+\end{longtable}
+
+These metrics together assess both \textit{retrieval quality} (Hit@k, MRR) and
+\textit{generation quality} (Token F1, Semantic Similarity), providing a complete
+picture of system performance.
+
+\begin{infobox}{Sample Evaluation Output}
+\begin{verbatim}
+Samples: 10   Hit@1: 0.80   Hit@3: 0.90   MRR: 0.843
+Answer F1 (avg): 0.61       Semantic Similarity (avg): 0.74
+\end{verbatim}
+\end{infobox}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Discussion: Mimicking vs.\ Understanding}
+\label{sec:discussion}
+
+A key question raised in the course is how far chatbot techniques can go, and what
+distinguishes mimicking from actual understanding.
+
+This system retrieves relevant text chunks and selects sentences with high keyword
+overlap. It does not parse meaning, draw inferences, or build a conceptual model of
+the material. In that sense it is firmly on the \textit{mimicking} side: it
+pattern-matches queries to stored text.
+
+However, the grounding mechanism adds a layer of epistemic caution: the system
+refuses to answer when evidence is weak, which is closer to how a careful human
+would behave under uncertainty. The LLM component adds fluency and some degree of
+paraphrase, but the underlying knowledge still comes entirely from retrieved text.
+
+This illustrates a practical boundary: RAG systems can produce useful, grounded
+responses without understanding, but they cannot reason beyond what is explicitly
+present in the retrieved context.
+
+% ════════════════════════════════════════════════════════════════════
+\section{Known Limitations}
+
+\begin{itemize}[leftmargin=*]
+  \item Scanned PDFs without a text layer return empty content; OCR is not supported.
+  \item Semantic evaluation is embedding-based only; an LLM-judge could provide
+        deeper quality assessment.
+  \item Several LangChain APIs used are deprecated and should be upgraded.
+  \item DOCX and other formats are not yet supported.
+  \item The \texttt{generate\_quiz()} function has no \texttt{max\_tokens} limit,
+        risking unbounded API cost.
+  \item Uploaded filenames are not sanitized before use in file paths, creating a
+        potential path traversal vulnerability.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+This project successfully implements a RAG-based educational assistant that extends
+the course concept of conversational AI by adding hybrid retrieval reranking, grounding
+checks, persistent memory, and a quantitative evaluation framework. All main objectives
+were met: the system provides grounded answers, persists knowledge across restarts,
+allows file-level memory management, and measures its own performance.
+
+The discussion of mimicking vs.\ understanding reveals that the system is effective
+precisely because it avoids hallucination through grounding, not because it understands
+the material. This is both its strength and its fundamental limitation.
+
+Future work includes OCR support for scanned PDFs, DOCX ingestion, LLM-judge
+evaluation, and upgrading vulnerable dependencies.
+
+% ════════════════════════════════════════════════════════════════════
+\newpage
+\section*{Appendix: Key Implementation Components}
+\addcontentsline{toc}{section}{Appendix: Key Implementation Components}
+
+\subsection*{Document Ingestion}
+\begin{lstlisting}[caption={Chunking and storing documents in database.py}]
+def process_and_store_file(self, file_path):
+    filename = os.path.basename(file_path)
+    raw_text = self._load_file_text(file_path)
+    if not raw_text:
+        return 0
+    base_doc = Document(page_content=raw_text,
+                        metadata={"source": filename, "page": 1})
+    chunks = self.text_splitter.split_documents([base_doc])
+    ids = []
+    for idx, chunk in enumerate(chunks):
+        chunk.metadata["chunk_id"] = idx
+        stable = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename.lower())
+        ids.append(f"{stable}::chunk::{idx}")
+    self.vector_store.add_documents(chunks, ids=ids)
+    return len(chunks)
+\end{lstlisting}
+
+\subsection*{Evaluation Pipeline}
+\begin{lstlisting}[caption={Token F1 and semantic similarity in evaluation.py}]
+def _token_f1(prediction, reference):
+    pred_tokens = _normalize(prediction)
+    ref_tokens  = _normalize(reference)
+    common = sum(min(pred_tokens.count(t), ref_tokens.count(t))
+                 for t in set(pred_tokens))
+    if common == 0:
+        return 0.0
+    precision = common / len(pred_tokens)
+    recall    = common / len(ref_tokens)
+    return 2 * precision * recall / (precision + recall)
+
+def _semantic_similarity(prediction, reference):
+    embedder = _get_semantic_embedder()
+    vectors  = embedder.embed_documents([prediction, reference])
+    return _cosine_similarity(vectors[0], vectors[1])
+\end{lstlisting}
+
+\subsection*{Response Generation}
+\begin{lstlisting}[caption={Grounded response logic in tutor\_engine.py}]
+def get_response(self, user_input, record_memory=True):
+    if self._is_chitchat(user_input):
+        return self._chitchat_answer(user_input)
+
+    context   = self._retrieve_context(user_input)
+    grounding = self._grounding_strength(user_input, context)
+
+    # Extractive answer is attempted first
+    if context.strip():
+        extractive = self._extractive_answer(user_input, context)
+        if extractive:
+            return extractive
+
+    # Grounding check before calling the LLM
+    if context.strip() and grounding < 0.18:
+        return ("I don't have enough evidence in the retrieved context "
+                "to answer confidently.")
+
+    response = self.client.chat.completions.create(
+        model=config.OPENAI_MODEL,
+        temperature=config.OPENAI_TEMPERATURE,
+        max_tokens=config.OPENAI_MAX_OUTPUT_TOKENS,
+        messages=[
+            {"role": "system", "content": "You are a precise educational tutor."},
+            {"role": "user",   "content": self._build_prompt(user_input, context)},
+        ],
+    )
+    return self._trim_to_two_sentences(
+        response.choices[0].message.content.strip())
+\end{lstlisting}
+
+
+
+\end{document}
