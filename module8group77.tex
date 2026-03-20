@@ -623,4 +623,1000 @@ def get_response(self, user_input, record_memory=True):
 
 
 
+\newpage
+\section*{Appendix: Full Implementation Components}
+\addcontentsline{toc}{section}{Appendix: Full Implementation Components}
+
+\subsection*{Document Ingestion}
+\begin{lstlisting}[caption={app.py}]
+import os
+import streamlit as st
+
+import config
+from audio_processor import AudioProcessor
+from database import DocumentProcessor
+from evaluation import evaluate_dataset, load_golden_dataset
+from tutor_engine import TutorEngine
+\end{lstlisting}
+
+\subsection*{Configuration}
+\begin{lstlisting}[caption={config.py}]
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+TEMP_UPLOAD_DIR = os.path.join(BASE_DIR, "temp_uploads")
+CHROMA_DB_DIR = os.path.join(BASE_DIR, "chroma_db")
+DB_DIR = CHROMA_DB_DIR
+
+COLLECTION_NAME = "course_documents"
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
+CHUNK_SIZE = 450
+CHUNK_OVERLAP = 80
+DEFAULT_RETRIEVAL_K = 4
+RETRIEVAL_FETCH_K_FACTOR = 4
+
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
+OPENAI_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "220"))
+\end{lstlisting}
+
+\subsection*{Database Module}
+\begin{lstlisting}[caption={database.py}]
+import os
+import re
+import csv
+import json
+from typing import Dict, List
+from PyPDF2 import PdfReader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
+
+import config
+
+class DocumentProcessor:
+    def __init__(self):
+        # Setup Embeddings
+        self.embeddings = HuggingFaceEmbeddings(
+             model_name=config.EMBEDDING_MODEL_NAME,
+             model_kwargs={"device": "cpu"}
+        )
+        
+        # Setup Persistent Vector Database (Chroma)
+        self.vector_store = Chroma(
+            collection_name="ai_tutor_knowledge_base",
+            embedding_function=self.embeddings,
+            persist_directory=config.DB_DIR
+        )
+
+        # Setup Text Splitter
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.CHUNK_SIZE,
+            chunk_overlap=config.CHUNK_OVERLAP,
+            length_function=len,
+        )
+
+    def _read_txt_like(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read().strip()
+
+    def _read_pdf(self, file_path: str) -> str:
+        text_parts: List[str] = []
+        try:
+            reader = PdfReader(file_path)
+            for page in reader.pages:
+                page_text = (page.extract_text() or "").strip()
+                if page_text:
+                    text_parts.append(page_text)
+        except Exception:
+            return ""
+        return "\n\n".join(text_parts).strip()
+
+    def _read_csv(self, file_path: str) -> str:
+        lines: List[str] = []
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    clean_row = [c.strip() for c in row if c and c.strip()]
+                    if clean_row:
+                        lines.append(" | ".join(clean_row))
+        except Exception:
+            return ""
+        return "\n".join(lines).strip()
+
+    def _flatten_json(self, obj, prefix: str = "") -> List[str]:
+        lines: List[str] = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                key = f"{prefix}.{k}" if prefix else str(k)
+                lines.extend(self._flatten_json(v, key))
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                key = f"{prefix}[{i}]"
+                lines.extend(self._flatten_json(item, key))
+        else:
+            value = str(obj).strip()
+            if value:
+                lines.append(f"{prefix}: {value}" if prefix else value)
+        return lines
+
+    def _read_json(self, file_path: str) -> str:
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                data = json.load(f)
+        except Exception:
+            return ""
+        return "\n".join(self._flatten_json(data)).strip()
+
+    def _load_file_text(self, file_path: str) -> str:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in {".txt", ".md"}:
+            return self._read_txt_like(file_path)
+        if ext == ".pdf":
+            return self._read_pdf(file_path)
+        if ext == ".csv":
+            return self._read_csv(file_path)
+        if ext == ".json":
+            return self._read_json(file_path)
+        return ""
+
+    def process_and_store_file(self, file_path: str) -> int:
+        filename = os.path.basename(file_path)
+        raw_text = self._load_file_text(file_path)
+
+        if not raw_text:
+            return 0
+
+        base_doc = Document(
+            page_content=raw_text,
+            metadata={"source": filename, "page": 1}
+        )
+
+        chunks: List[Document] = self.text_splitter.split_documents([base_doc])
+        ids: List[str] = []
+        for idx, chunk in enumerate(chunks):
+            chunk.metadata["chunk_id"] = idx
+            stable_source = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename.lower())
+            ids.append(f"{stable_source}::chunk::{idx}")
+
+        self.vector_store.add_documents(chunks, ids=ids)
+        return len(chunks)
+
+    def _tokenize(self, text: str) -> set:
+        return {t for t in re.findall(r"\w+", text.lower()) if len(t) > 2}
+
+    def _hybrid_rerank(self, query: str, docs: List[Document], top_k: int) -> List[Document]:
+        if not docs:
+            return []
+
+        q_tokens = self._tokenize(query)
+        scored = []
+        for rank, doc in enumerate(docs, start=1):
+            d_tokens = self._tokenize(doc.page_content)
+            lexical = 0.0
+            if q_tokens and d_tokens:
+                lexical = len(q_tokens.intersection(d_tokens)) / max(1, len(q_tokens))
+
+            semantic = 1.0 / rank
+            score = 0.7 * semantic + 0.3 * lexical
+            scored.append((score, doc))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        unique_docs: List[Document] = []
+        seen = set()
+        for _, doc in scored:
+            source = doc.metadata.get("source", "")
+            chunk_id = doc.metadata.get("chunk_id", "")
+            key = (source, chunk_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_docs.append(doc)
+            if len(unique_docs) >= top_k:
+                break
+        return unique_docs
+
+    def get_retriever(self, search_k: int = None):
+        if search_k is None:
+            search_k = config.DEFAULT_RETRIEVAL_K
+        fetch_k = max(8, search_k * config.RETRIEVAL_FETCH_K_FACTOR)
+        return self.vector_store.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": search_k, "fetch_k": fetch_k}
+        )
+
+    def retrieve_docs(self, query: str, k: int = None) -> List[Document]:
+        if k is None:
+            k = config.DEFAULT_RETRIEVAL_K
+        fetch_k = max(8, k * config.RETRIEVAL_FETCH_K_FACTOR)
+        retriever = self.vector_store.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": fetch_k, "fetch_k": fetch_k}
+        )
+        try:
+            docs = retriever.get_relevant_documents(query)
+            return self._hybrid_rerank(query, docs, top_k=k)
+        except Exception:
+            return []
+
+    def list_saved_files(self) -> List[Dict[str, int]]:
+        try:
+            payload = self.vector_store.get(include=["metadatas"])
+        except Exception:
+            return []
+
+        metadatas = payload.get("metadatas", []) if isinstance(payload, dict) else []
+        counts: Dict[str, int] = {}
+        for md in metadatas:
+            if not isinstance(md, dict):
+                continue
+            source = str(md.get("source", "")).strip()
+            if not source:
+                continue
+            counts[source] = counts.get(source, 0) + 1
+
+        rows = [{"source": k, "chunk_count": v} for k, v in counts.items()]
+        rows.sort(key=lambda x: x["source"].lower())
+        return rows
+
+    def delete_source(self, source: str) -> int:
+        ids = self._ids_for_source(source)
+        if not ids:
+            return 0
+        try:
+            self.vector_store.delete(ids=ids)
+            return len(ids)
+        except Exception:
+            return 0
+
+    def clear_all_documents(self) -> int:
+        try:
+            payload = self.vector_store.get(include=[])
+        except Exception:
+            return 0
+
+        if not isinstance(payload, dict):
+            return 0
+        ids = payload.get("ids", []) or []
+        if not ids:
+            return 0
+        try:
+            self.vector_store.delete(ids=ids)
+            return len(ids)
+        except Exception:
+            return 0
+\end{lstlisting}
+
+\subsection*{Evaluation Module}
+\begin{lstlisting}[caption={evaluation.py}]
+import json
+import os
+import re
+from typing import Dict, List, Tuple
+from math import sqrt
+
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+import config
+
+_SEMANTIC_EMBEDDER = None
+
+def load_golden_dataset(path: str) -> List[Dict[str, str]]:
+    if not os.path.exists(path):
+        return []
+
+    rows: List[Dict[str, str]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            question = str(item.get("question", "")).strip()
+            answer = str(item.get("answer", "")).strip()
+            source = str(item.get("source", "")).strip()
+            if question and answer:
+                rows.append({
+                    "question": question,
+                    "answer": answer,
+                    "source": source,
+                })
+    return rows
+
+def _normalize(text: str) -> List[str]:
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return [t for t in text.split() if t]
+
+def _token_f1(prediction: str, reference: str) -> float:
+    pred_tokens = _normalize(prediction)
+    ref_tokens = _normalize(reference)
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+
+    pred_counts: Dict[str, int] = {}
+    ref_counts: Dict[str, int] = {}
+    for t in pred_tokens:
+        pred_counts[t] = pred_counts.get(t, 0) + 1
+    for t in ref_tokens:
+        ref_counts[t] = ref_counts.get(t, 0) + 1
+
+    common = 0
+    for token, p_count in pred_counts.items():
+        if token in ref_counts:
+            common += min(p_count, ref_counts[token])
+
+    if common == 0:
+        return 0.0
+
+    precision = common / len(pred_tokens)
+    recall = common / len(ref_tokens)
+    return 2 * precision * recall / (precision + recall)
+
+def _get_semantic_embedder():
+    global _SEMANTIC_EMBEDDER
+    if _SEMANTIC_EMBEDDER is None:
+        _SEMANTIC_EMBEDDER = HuggingFaceEmbeddings(
+            model_name=config.EMBEDDING_MODEL_NAME,
+            model_kwargs={"device": "cpu"},
+        )
+    return _SEMANTIC_EMBEDDER
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sqrt(sum(x * x for x in a))
+    nb = sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+def _semantic_similarity(prediction: str, reference: str) -> float:
+    if not prediction.strip() or not reference.strip():
+        return 0.0
+    try:
+        embedder = _get_semantic_embedder()
+        vectors = embedder.embed_documents([prediction, reference])
+        return _cosine_similarity(vectors[0], vectors[1])
+    except Exception:
+        return 0.0
+
+def evaluate_dataset(doc_processor, tutor_engine, dataset: List[Dict[str, str]], k_values: Tuple[int, ...] = (1, 3, 5)) -> Dict:
+    if not dataset:
+        return {
+            "num_samples": 0,
+            "hit_rates": {f"Hit@{k}": 0.0 for k in k_values},
+            "mrr": 0.0,
+            "avg_f1": 0.0,
+            "avg_semantic_similarity": 0.0,
+            "rows": [],
+        }
+
+    hit_counts = {k: 0 for k in k_values}
+    mrr_total = 0.0
+    f1_total = 0.0
+    semantic_total = 0.0
+    rows = []
+
+    max_k = max(k_values)
+
+    for sample in dataset:
+        question = sample["question"]
+        expected_answer = sample["answer"]
+        expected_source = sample.get("source", "")
+
+        docs = doc_processor.retrieve_docs(question, k=max_k)
+        retrieved_sources = [str(d.metadata.get("source", "")) for d in docs]
+
+        rank = None
+        if expected_source:
+            for idx, src in enumerate(retrieved_sources, start=1):
+                if src == expected_source:
+                    rank = idx
+                    break
+
+            for k in k_values:
+                if rank is not None and rank <= k:
+                    hit_counts[k] += 1
+            if rank is not None:
+                mrr_total += 1.0 / rank
+
+        predicted_answer = tutor_engine.get_response(question, record_memory=False)
+        f1_score = _token_f1(predicted_answer, expected_answer)
+        semantic_sim = _semantic_similarity(predicted_answer, expected_answer)
+        f1_total += f1_score
+        semantic_total += semantic_sim
+
+        rows.append({
+            "question": question,
+            "expected_source": expected_source,
+            "retrieved_top1": retrieved_sources[0] if retrieved_sources else "",
+            "rank_of_expected_source": rank if rank is not None else "not_found",
+            "answer_f1": round(f1_score, 3),
+            "semantic_similarity": round(semantic_sim, 3),
+        })
+
+    n = len(dataset)
+    hit_rates = {f"Hit@{k}": round(hit_counts[k] / n, 3) for k in k_values}
+    mrr = round(mrr_total / n, 3)
+    avg_f1 = round(f1_total / n, 3)
+    avg_semantic_similarity = round(semantic_total / n, 3)
+
+    return {
+        "num_samples": n,
+        "hit_rates": hit_rates,
+        "mrr": mrr,
+        "avg_f1": avg_f1,
+        "avg_semantic_similarity": avg_semantic_similarity,
+        "rows": rows,
+    }
+
+\subsection*{Main Application}
+\begin{lstlisting}[caption={app.py (continued)}]
+
+
+if "doc_processor" not in st.session_state:
+    st.session_state.doc_processor = DocumentProcessor()
+if "tutor_engine" not in st.session_state:
+    st.session_state.tutor_engine = TutorEngine(
+        retriever=st.session_state.doc_processor.get_retriever(
+            search_k=config.DEFAULT_RETRIEVAL_K
+        )
+    )
+if "audio_processor" not in st.session_state:
+    st.session_state.audio_processor = AudioProcessor()
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Hello! I am your Socratic AI Tutor. Ask me any question about your uploaded study files.",
+        }
+    ]
+if "retrieval_k" not in st.session_state:
+    st.session_state.retrieval_k = config.DEFAULT_RETRIEVAL_K
+
+st.set_page_config(page_title="Socratic AI Tutor", page_icon="graduation", layout="wide")
+st.title("Socratic AI Tutor with Persistent Memory")
+
+def render_evaluation_results():
+    eval_result = st.session_state.get("eval_result")
+    if not eval_result:
+        st.info("No evaluation result yet. Click 'Evaluate Model' first.")
+        return
+
+    if eval_result["num_samples"] == 0:
+        st.info(
+            "No golden dataset found. Create 'golden_dataset.jsonl' in the project root to run evaluation."
+        )
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Samples", eval_result["num_samples"])
+        c2.metric("Hit@1", eval_result["hit_rates"]["Hit@1"])
+        c3.metric("Hit@3", eval_result["hit_rates"]["Hit@3"])
+        c4.metric("MRR", eval_result["mrr"])
+        st.metric("Answer F1 (avg)", eval_result["avg_f1"])
+        st.metric("Semantic Similarity (avg)", eval_result.get("avg_semantic_similarity", 0.0))
+        st.dataframe(eval_result["rows"], use_container_width=True, height=360)
+
+def render_saved_files_panel():
+    st.subheader("Saved Files")
+    saved_files = st.session_state.doc_processor.list_saved_files()
+    if not saved_files:
+        st.caption("No files saved yet.")
+        return
+    for row in saved_files:
+        c1, c2 = st.columns([0.88, 0.12], gap="small")
+        c1.markdown(f"`{row['source']}`  ({row['chunk_count']} chunks)")
+        if c2.button("X", key=f"delete_{row['source']}", help="Delete this file", use_container_width=True):
+            deleted = st.session_state.doc_processor.delete_source(row["source"])
+            st.session_state.tutor_engine.update_retriever(
+                st.session_state.doc_processor.get_retriever(
+                    search_k=st.session_state.retrieval_k
+                )
+            )
+            if deleted > 0:
+                st.success(f"Deleted `{row['source']}` ({deleted} chunks)")
+            else:
+                st.warning(f"Could not delete `{row['source']}`")
+            st.rerun()
+
+left_col, center_col, right_col = st.columns([1.0, 1.8, 1.0], gap="large")
+
+with left_col:
+    st.header("Knowledge Base")
+    st.write("Upload study files, save them, and see what is currently stored.")
+
+    retrieval_k = st.slider(
+        "Retrieval Top-k",
+        min_value=1,
+        max_value=8,
+        value=st.session_state.retrieval_k,
+        help="Lower values are stricter; higher values provide broader context.",
+        key="left_retrieval_k",
+    )
+    if retrieval_k != st.session_state.retrieval_k:
+        st.session_state.retrieval_k = retrieval_k
+        st.session_state.tutor_engine.update_retriever(
+            st.session_state.doc_processor.get_retriever(
+                search_k=st.session_state.retrieval_k
+            )
+        )
+
+    uploaded_file = st.file_uploader(
+        "Upload a file",
+        type=["txt", "md", "pdf", "csv", "json"],
+        key="left_file_uploader",
+    )
+    if st.button("Process & Save Document", key="left_save_btn") and uploaded_file:
+        with st.spinner("Processing document..."):
+            temp_path = os.path.join(config.TEMP_UPLOAD_DIR, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            num_chunks = st.session_state.doc_processor.process_and_store_file(temp_path)
+            st.session_state.tutor_engine.update_retriever(
+                st.session_state.doc_processor.get_retriever(
+                    search_k=st.session_state.retrieval_k
+                )
+            )
+
+            if num_chunks == 0:
+                st.warning("File was empty or unsupported. Nothing was added.")
+            else:
+                st.success(f"Saved: `{uploaded_file.name}` ({num_chunks} chunks)")
+                st.rerun()
+
+    st.divider()
+    if st.button("Reset Knowledge Base (Delete All)", key="left_reset_all_btn", type="secondary"):
+        deleted_total = st.session_state.doc_processor.clear_all_documents()
+        st.session_state.tutor_engine.update_retriever(
+            st.session_state.doc_processor.get_retriever(
+                search_k=st.session_state.retrieval_k
+            )
+        )
+        if deleted_total > 0:
+            st.success(f"All saved knowledge deleted ({deleted_total} chunks).")
+        else:
+            st.info("Knowledge base was already empty.")
+        st.rerun()
+
+    render_saved_files_panel()
+
+with center_col:
+    st.header("Chat")
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+            if msg["role"] == "assistant" and msg.get("sources"):
+                source_lines = []
+                for s in msg["sources"]:
+                    source_lines.append(
+                        f"- source: `{s.get('source', 'unknown')}`, page: `{s.get('page', '?')}`, chunk: `{s.get('chunk_id', '?')}`"
+                    )
+                st.markdown("Retrieved evidence:\n" + "\n".join(source_lines))
+
+    st.divider()
+    with st.form("center_chat_form", clear_on_submit=True):
+        input_col, send_col = st.columns([0.86, 0.14], gap="small")
+        user_input = input_col.text_input(
+            "Message",
+            key="center_chat_input",
+            placeholder="Ask a question...",
+            label_visibility="collapsed",
+        )
+        send_clicked = send_col.form_submit_button("Send", use_container_width=True)
+
+    if send_clicked and user_input.strip():
+        with st.spinner("Thinking..."):
+            st.session_state.messages.append({"role": "user", "content": user_input.strip()})
+            response_text = st.session_state.tutor_engine.get_response(user_input.strip())
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": response_text,
+                    "sources": st.session_state.tutor_engine.get_last_retrieved_sources(),
+                }
+            )
+        st.rerun()
+
+with right_col:
+    st.header("Assessment")
+    has_saved_files = len(st.session_state.doc_processor.list_saved_files()) > 0
+    st.button(
+        "Generate Contextual Quiz",
+        disabled=True,
+        help="Coming soon (outside MVP scope).",
+        key="right_quiz_btn",
+    )
+
+    dataset_path = os.path.join(config.BASE_DIR, "golden_dataset.jsonl")
+    if st.button(
+        "Evaluate Model",
+        key="right_eval_btn",
+        disabled=not has_saved_files,
+        help="Save at least one file first." if not has_saved_files else None,
+    ):
+        with st.spinner("Running retrieval/generation evaluation..."):
+            dataset = load_golden_dataset(dataset_path)
+            result = evaluate_dataset(
+                doc_processor=st.session_state.doc_processor,
+                tutor_engine=st.session_state.tutor_engine,
+                dataset=dataset,
+                k_values=(1, 3, 5),
+            )
+            st.session_state.eval_result = result
+    with st.expander("View Evaluation Results", expanded=False):
+        render_evaluation_results()
+\end{lstlisting}
+
+\subsection*{Additional Files}
+\begin{lstlisting}[caption={requirements.txt}]
+streamlit==1.36.0
+langchain==0.2.6
+langchain-community==0.2.6
+langchain-core==0.2.11
+chromadb==0.5.3
+sentence-transformers==2.7.0
+pypdf2==3.0.1
+python-dotenv==1.0.1
+gtts==2.5.1
+audio-recorder-streamlit==0.0.10
+openai==1.30.5
+httpx==0.27.2
+\end{lstlisting}
+
+\begin{lstlisting}[caption={test\_connection.py}]
+import requests
+import json
+
+urls = [
+    "http://localhost:11434/api/tags",
+    "https://mitsubishi-refers-raid-rail.trycloudflare.com/api/tags"
+]
+
+for url in urls:
+    print(f"Checking {url}...")
+    try:
+        response = requests.get(url, timeout=5)
+        print(f"Status Code: {response.status_code}")
+        if response.status_code == 200:
+            print(f"Ollama is reachable! {response.json()}")
+        else:
+            print(f"Not reachable. Response: {response.text[:100]}")
+    except Exception as e:
+        print(f"Error: {e}")
+\end{lstlisting}
+
+\begin{lstlisting}[caption={azure-deploy.json (ARM Template)}]
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "defaultValue": "ai-tutor-vm"
+        },
+        "adminUsername": {
+            "type": "string",
+            "defaultValue": "azureuser"
+        },
+        "adminPassword": {
+            "type": "secureString"
+        },
+        "vmSize": {
+            "type": "string",
+            "defaultValue": "Standard_B2ms"
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        }
+    },
+    "variables": {
+        "vnetName": "[concat(parameters('vmName'), '-vnet')]",
+        "nsgName": "[concat(parameters('vmName'), '-nsg')]",
+        "publicIpName": "[concat(parameters('vmName'), '-pip')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2023-09-01",
+            "name": "[variables('nsgName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "Allow-SSH",
+                        "properties": {
+                            "priority": 1000,
+                            "access": "Allow",
+                            "direction": "Inbound",
+                            "protocol": "Tcp",
+                            "destinationPortRange": "22"
+                        }
+                    },
+                    {
+                        "name": "Allow-Streamlit",
+                        "properties": {
+                            "priority": 1010,
+                            "access": "Allow",
+                            "direction": "Inbound",
+                            "protocol": "Tcp",
+                            "destinationPortRange": "8501"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={azure-deploy.parameters.json}]
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "value": "ai-tutor-vm"
+        },
+        "adminUsername": {
+            "value": "azureuser"
+        },
+        "adminPassword": {
+            "value": "YourStrongPassword_123!"
+        },
+        "vmSize": {
+            "value": "Standard_B2ms"
+        },
+        "location": {
+            "value": "westeurope"
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={golden\_dataset.jsonl (sample)}]
+{"question":"What is the main topic of chapter 1?","answer":"The main topic of chapter 1 is ...","source":"your_file_name.txt"}
+{"question":"Define term X based on the text.","answer":"Term X means ...","source":"your_file_name.txt"}
+{"question":"What are the two key differences between A and B?","answer":"The two key differences are ...","source":"your_file_name.txt"}
+\end{lstlisting}
+
+\subsection*{Tutor Engine Module}
+\begin{lstlisting}[caption={tutor\_engine.py}]
+import re
+
+from openai import OpenAI, RateLimitError, AuthenticationError, APIConnectionError, OpenAIError
+from langchain.memory import ConversationBufferMemory
+
+import config
+
+class TutorEngine:
+    def __init__(self, retriever):
+        self.client = OpenAI(api_key=config.OPENAI_API_KEY)
+        self.retriever = retriever
+        self.last_retrieved_sources = []
+        self.memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            return_messages=True
+        )
+
+    def _retrieve_context(self, question: str) -> str:
+        try:
+            docs = self.retriever.get_relevant_documents(question)
+        except Exception:
+            docs = []
+        self.last_retrieved_sources = []
+        if not docs:
+            return ""
+        context_parts = []
+        seen = set()
+        for doc in docs:
+            source = doc.metadata.get("source", "unknown")
+            page = doc.metadata.get("page", "?")
+            chunk_id = doc.metadata.get("chunk_id", "?")
+            key = (source, page, chunk_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.last_retrieved_sources.append(
+                {"source": source, "page": page, "chunk_id": chunk_id}
+            )
+            context_parts.append(
+                f"[Source: {source}, page {page}, chunk {chunk_id}]\n{doc.page_content}"
+            )
+        return "\n\n".join(context_parts)
+
+    def _extractive_answer(self, question: str, context: str) -> str:
+        clean_context = self._extract_clean_context(context)
+        if not clean_context:
+            return ""
+        question_terms = {
+            t for t in re.findall(r"\w+", question.lower())
+            if len(t) > 2
+        }
+        stop_terms = {
+            "what", "when", "where", "which", "does", "about", "from", "with",
+            "that", "this", "have", "your", "give", "common", "used", "mean",
+            "important", "why", "is", "the", "are", "for", "and"
+        }
+        question_terms = {t for t in question_terms if t not in stop_terms}
+        if not question_terms:
+            return ""
+        sentences = re.split(r"(?<=[.!?])\s+", clean_context)
+        scored = []
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            sent_terms = {t for t in re.findall(r"\w+", sent.lower()) if len(t) > 2}
+            if not sent_terms:
+                continue
+            overlap = len(question_terms.intersection(sent_terms))
+            if overlap == 0:
+                continue
+            score = overlap / max(1, len(question_terms))
+            scored.append((score, sent))
+        if not scored:
+            return ""
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_score, best_sentence = scored[0]
+        if best_score < 0.20:
+            return ""
+        return self._trim_to_two_sentences(best_sentence)
+
+    def _grounding_strength(self, question: str, context: str) -> float:
+        clean_context = self._extract_clean_context(context)
+        if not clean_context:
+            return 0.0
+        q_terms = {t for t in re.findall(r"\w+", question.lower()) if len(t) > 2}
+        c_terms = {t for t in re.findall(r"\w+", clean_context.lower()) if len(t) > 2}
+        if not q_terms or not c_terms:
+            return 0.0
+        overlap = len(q_terms.intersection(c_terms))
+        return overlap / max(1, len(q_terms))
+
+    def get_response(self, user_input: str, record_memory: bool = True) -> str:
+        if self._is_chitchat(user_input):
+            self.last_retrieved_sources = []
+            answer = self._chitchat_answer(user_input)
+            if record_memory:
+                self.memory.chat_memory.add_user_message(user_input)
+                self.memory.chat_memory.add_ai_message(answer)
+            return answer
+        context = self._retrieve_context(user_input)
+        grounding = self._grounding_strength(user_input, context)
+        if context.strip():
+            extractive = self._extractive_answer(user_input, context)
+            if extractive:
+                answer = extractive
+                if record_memory:
+                    self.memory.chat_memory.add_user_message(user_input)
+                    self.memory.chat_memory.add_ai_message(answer)
+                return answer
+        if context.strip():
+            if grounding < 0.18:
+                answer = (
+                    "I don't have enough evidence in the retrieved context to answer confidently."
+                )
+                if record_memory:
+                    self.memory.chat_memory.add_user_message(user_input)
+                    self.memory.chat_memory.add_ai_message(answer)
+                return answer
+        try:
+            response = self.client.chat.completions.create(
+                model=config.OPENAI_MODEL,
+                temperature=config.OPENAI_TEMPERATURE,
+                max_tokens=config.OPENAI_MAX_OUTPUT_TOKENS,
+                messages=[
+                    {"role": "system", "content": "You are a precise educational tutor."},
+                    {"role": "user", "content": self._build_prompt(user_input, context)},
+                ],
+            )
+            answer = self._trim_to_two_sentences((response.choices[0].message.content or "").strip())
+        except OpenAIError:
+            answer = self._fallback_answer(user_input, context)
+        if record_memory:
+            self.memory.chat_memory.add_user_message(user_input)
+            self.memory.chat_memory.add_ai_message(answer)
+        return answer
+\end{lstlisting}
+
+\subsection*{Audio Processor Module}
+\begin{lstlisting}[caption={audio\_processor.py}]
+import base64
+from gtts import gTTS
+import os
+
+class AudioProcessor:
+    def __init__(self):
+        self.temp_audio_file = "temp_response.mp3"
+
+    def text_to_speech_html(self, text: str, lang: str = 'en') -> str:
+        # Create TTS
+        tts = gTTS(text=text, lang=lang, slow=False)
+        tts.save(self.temp_audio_file)
+
+        # Read the audio file
+        with open(self.temp_audio_file, "rb") as f:
+            data = f.read()
+            b64 = base64.b64encode(data).decode()
+            
+        # Create an invisible HTML audio tag that plays automatically
+        md = f"""
+            <audio autoplay="true" style="display:none;">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+            """
+        
+        # Cleanup temp file
+        if os.path.exists(self.temp_audio_file):
+            os.remove(self.temp_audio_file)
+            
+        return md
+\end{lstlisting}
+
+\subsection*{Docker Configuration}
+\begin{lstlisting}[caption={docker-compose.yml}]
+services:
+  aitutor:
+    build: .
+    container_name: socratic_ai_tutor
+    ports:
+      - "8501:8501"
+    volumes:
+      - aitutor_chroma_data:/app/chroma_db
+      - aitutor_uploads:/app/temp_uploads
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  aitutor_chroma_data:
+  aitutor_uploads:
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Dockerfile}]
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV STREAMLIT_SERVER_PORT=8501
+ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/chroma_db /app/temp_uploads
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+\end{lstlisting}
+
 \end{document}
